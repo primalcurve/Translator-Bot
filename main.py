@@ -50,7 +50,7 @@ class ShardedBot(discord.AutoShardedBot):
         await self.create_tables()
 
     async def setup_translator(self):
-        proxy="[PRIVATE]"
+        proxy = os.getenv('BOT_PROXY')
         
         self.trad = Translator(proxy=proxy)
         print(f"=== Proxy Setup updated ! ===")
