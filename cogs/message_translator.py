@@ -124,202 +124,388 @@ class MessageTranslator(Cog):
         is_emoji_or_mention = await self.is_emoji_or_mention(message.content)
 
         # Si l'auteur du message est un bot ou le message vient d'un MP, on ne fait rien
+        # If the author of the message is a bot or the message comes from a PM, we do nothing
         if (message.author.bot is True) or (message.guild is None) or (is_emoji_or_mention) :
             return
 
         # On retire les caractères spéciaux du message pour un test de traduction basé sur la séquence
+        # Special characters are removed from the message for a sequence-based translation test
         MessageOnly = ''.join(item for item in message.content if item.isalnum())
 
-        if type(message.channel) is Thread: # Si le message est envoyé dans un thread, on récupère le channel de base
+        # Si le message est envoyé dans un thread, on récupère le channel de base
+        # If the message is sent in a thread, we get the base channel
+        if type(message.channel) is Thread:
             channel_id = message.channel.parent_id
         else : # Sinon, on récupère le channel actuel
             channel_id = message.channel.id
 
         cursor = await self.bot.db.cursor()
 
-        await cursor.execute(f"SELECT channel_id_1, channel_id_2, language_1, language_2, webhook_1, webhook_2 FROM linkchannels WHERE guild_id = {message.guild.id} AND (channel_id_1 = {channel_id} OR channel_id_2 = {channel_id})")
-        result = await cursor.fetchone()
-        if result is not None :
-            result = list(result)
-            if result[0] is None :
+        await cursor.execute(
+            f"SELECT channel_id_1, channel_id_2, language_1, language_2, "
+            f"webhook_1, webhook_2 FROM linkchannels WHERE guild_id = "
+            f"{message.guild.id} AND "
+            f"(channel_id_1 = {channel_id} OR channel_id_2 = {channel_id})"
+        )
+        # Change to `fetchall` so we can translate more than one linked channel
+        result = await cursor.fetchall()
+        if result is not None:
+            # Use list comprehension to rapidly process the db rows
+            result = [list(row) for row in result if list(row)[0] is not None]
+            if len(result) == 0:
                 result = None
         
-        await cursor.execute(f"SELECT info FROM langinfo WHERE guild_id = {message.guild.id}")
+        await cursor.execute(
+            f"SELECT info FROM langinfo WHERE guild_id = {message.guild.id}"
+        )
         langinfo = await cursor.fetchone()
         if str(langinfo) != "None" :
             langinfo = langinfo[0]
 
-        if result is not None : # Si un channel est lié à un autre channel
+        # Si un channel est lié à un autre channel
+        # If a channel is linked to another channel
+        if result is not None:
             
             if type(message.channel) is Thread :
                 await cursor.close()
                 return
             
-            result[0], result[1] = int(result[0]), int(result[1])
-            if channel_id == int(result[0]) : # Si le channel actuel est le channel 1
-                SOURCE_LANG = self.bot.LANGCODES[result[2]]
-                DESTINATION_LANG = self.bot.LANGCODES[result[3]]
-                DESTINATION_CHANNEL = result[1]
-                DESTINATION_WEBHOOK = result[5]
-            else : # Si le channel actuel est le channel 2
-                SOURCE_LANG = self.bot.LANGCODES[result[3]]
-                DESTINATION_LANG = self.bot.LANGCODES[result[2]]
-                DESTINATION_CHANNEL = result[0]
-                DESTINATION_WEBHOOK = result[4]
-            
-            # On traduit le message dans la 1ère langue
-            try :
-                temp_lo = await self.bot.trad.detect(message.content)
-                langue_originale = temp_lo.lang
-            except RateLimitError :
-                raise
-            except :
-                temp_lo = await self.bot.trad.detect_legacy(message.content)
-                langue_originale = temp_lo.lang
-            
-            if result[4] is None :
-                try :
-                    chan = await self.bot.fetch_channel(result[0])
-                except errors.NotFound :
-                    await cursor.execute(f"DELETE FROM linkchannels WHERE guild_id = {message.guild.id} AND channel_id_1 = {result[0]}")
-                    await self.bot.db.commit()
-                    await cursor.close()
-                    return
-                try:
-                    webhook = await chan.create_webhook(name="Translator Bot")
-                except :
-                    await message.reply(f"I am missing the `Manage Webhooks` permission in the <#{result[0]}> channel.\nPlease give me the permission globally or for the channel only if you are an admin and try again.\nIf you are not an admin, please ask an admin to give me the permission.")
-                    await cursor.close()
-                    return
-                sql = f"UPDATE linkchannels SET webhook_1 = ? WHERE guild_id = ? AND channel_id_1 = ?"
-                val = (webhook.url, message.guild.id, result[0])
-                await cursor.execute(sql,val)
-                await self.bot.db.commit()
-
-                result[4] = webhook.url
-            
-            if result[5] is None :
-                try :
-                    chan = await self.bot.fetch_channel(result[1])
-                except errors.NotFound :
-                    await cursor.execute(f"DELETE FROM linkchannels WHERE guild_id = {message.guild.id} AND channel_id_1 = {result[1]}")
-                    await self.bot.db.commit()
-                    await cursor.close()
-                    return
-                try :
-                    webhook = await chan.create_webhook(name="Translator Bot")
-                except :
-                    await message.reply(f"I am missing the `Manage Webhooks` permission in the <#{result[1]}> channel.\nPlease give me the permission globally or for the channel only if you are an admin and try again.\nIf you are not an admin, please ask an admin to give me the permission.")
-                    await cursor.close()
-                    return
-                sql = f"UPDATE linkchannels SET webhook_2 = ? WHERE guild_id = ? AND channel_id_2 = ?"
-                val = (webhook.url, message.guild.id, result[1])
-                await cursor.execute(sql,val)
-                await self.bot.db.commit()
-
-                result[5] = webhook.url
-
-            if (langue_originale == SOURCE_LANG) or (len(message.content) == 0 and len(message.attachments) > 0) :
-
-                if DESTINATION_WEBHOOK is None :
-                    if DESTINATION_CHANNEL == result[0] :
-                        DESTINATION_WEBHOOK = result[4]
-                    else :
-                        DESTINATION_WEBHOOK = result[5]
+            # Iterate over the rows, making sure to translate for each linked
+            # channel.
+            for _row in result:        
+                _row[0], _row[1] = int(_row[0]), int(_row[1])
+                # Si le channel actuel est le channel 1
+                # If the current channel is channel 1
+                if channel_id == int(_row[0]):
+                    SOURCE_LANG = self.bot.LANGCODES[_row[2]]
+                    DESTINATION_LANG = self.bot.LANGCODES[_row[3]]
+                    DESTINATION_CHANNEL = _row[1]
+                    DESTINATION_WEBHOOK = _row[5]
+                # Si le channel actuel est le channel 2
+                # If the current channel is channel 2
+                else:
+                    SOURCE_LANG = self.bot.LANGCODES[_row[3]]
+                    DESTINATION_LANG = self.bot.LANGCODES[_row[2]]
+                    DESTINATION_CHANNEL = _row[0]
+                    DESTINATION_WEBHOOK = _row[4]
                 
-                try: # On tente de traduire le message
-                    Traduction = await self.bot.trad.translate(text = message.content, dest=DESTINATION_LANG)
-                except RateLimitError :
+                # On traduit le message dans la 1ère langue
+                # We translate the message into the first language
+                try:
+                    temp_lo = await self.bot.trad.detect(message.content)
+                    langue_originale = temp_lo.lang
+                except RateLimitError:
                     raise
-                except :
+                except:
+                    temp_lo = await self.bot.trad.detect_legacy(message.content)
+                    langue_originale = temp_lo.lang
+                
+                if _row[4] is None :
+                    try :
+                        chan = await self.bot.fetch_channel(_row[0])
+                    except errors.NotFound :
+                        await cursor.execute(
+                            f"DELETE FROM linkchannels "
+                            f"WHERE guild_id = {message.guild.id} "
+                            f"AND channel_id_1 = {_row[0]}"
+                        )
+                        await self.bot.db.commit()
+                        await cursor.close()
+                        return
                     try:
-                        Traduction = await self.bot.trad.translate_to_detect(text = message.content, dest=DESTINATION_LANG)
+                        webhook = await chan.create_webhook(
+                            name="Translator Bot"
+                        )
+                    except :
+                        await message.reply(
+                            f"I am missing the `Manage Webhooks` permission "
+                            f"in the <#{_row[0]}> channel.\n"
+                            f"Please give me the permission globally or "
+                            f"for the channel only if you are an admin "
+                            f"and try again.\nIf you are not an admin, "
+                            f"please ask an admin to give me the permission."
+                        )
+                        await cursor.close()
+                        return
+                    sql = (
+                        f"UPDATE linkchannels "
+                        f"SET webhook_1 = ? "
+                        f"WHERE guild_id = ? "
+                        f"AND channel_id_1 = ?"
+                    )
+                    val = (webhook.url, message.guild.id, _row[0])
+                    await cursor.execute(sql,val)
+                    await self.bot.db.commit()
+
+                    _row[4] = webhook.url
+                
+                if _row[5] is None :
+                    try:
+                        chan = await self.bot.fetch_channel(_row[1])
+                    except errors.NotFound:
+                        await cursor.execute(
+                            f"DELETE FROM linkchannels "
+                            f"WHERE guild_id = {message.guild.id} "
+                            f"AND channel_id_1 = {_row[1]}"
+                        )
+                        await self.bot.db.commit()
+                        await cursor.close()
+                        return
+                    try:
+                        webhook = await chan.create_webhook(
+                            name="Translator Bot"
+                        )
+                    except:
+                        await message.reply(
+                            f"I am missing the `Manage Webhooks` permission "
+                            f"in the <#{_row[1]}> channel.\n"
+                            f"Please give me the permission globally or "
+                            f"for the channel only if you are an admin "
+                            f"and try again.\nIf you are not an admin, "
+                            f"please ask an admin to give me the permission."
+                        )
+                        await cursor.close()
+                        return
+                    sql = (
+                        f"UPDATE linkchannels "
+                        f"SET webhook_2 = ? "
+                        f"WHERE guild_id = ? "
+                        f"AND channel_id_2 = ?"
+                    )
+                    val = (webhook.url, message.guild.id, _row[1])
+                    await cursor.execute(sql,val)
+                    await self.bot.db.commit()
+
+                    _row[5] = webhook.url
+
+                if (
+                    langue_originale == SOURCE_LANG or 
+                    len(message.content) == 0 and len(message.attachments) > 0
+                ):
+
+                    if DESTINATION_WEBHOOK is None:
+                        if DESTINATION_CHANNEL == _row[0]:
+                            DESTINATION_WEBHOOK = _row[4]
+                        else :
+                            DESTINATION_WEBHOOK = _row[5]
+                    
+                    # On tente de traduire le message
+                    # We try to translate the message
+                    try:
+                        Traduction = await self.bot.trad.translate(
+                            text=message.content,
+                            dest=DESTINATION_LANG
+                        )
                     except RateLimitError :
                         raise
                     except :
-                        await cursor.close()
-                        return
-
-                if Traduction.src == 'auto' :
-                    Traduction.src = langue_originale
-                
-                Traduction.text = await self.is_custom_emoji(message.content, Traduction.text)
-
-                is_same_message_content = await self.bot.loop.run_in_executor(None, self.compare_messages, message.content, Traduction.text)
-                is_same_message_only = await self.bot.loop.run_in_executor(None, self.compare_messages, MessageOnly, Traduction.text)
-                if is_same_message_content or is_same_message_only :
-                    Traduction.text = message.content
-                
-                if (langinfo == "enabled") and (True not in [is_same_message_content, is_same_message_only]) :
-                    flag = self.bot.LANGUAGES[Traduction.src]
-                    Traduction.text = f"`{flag}` {Traduction.text}"
-                
-                if is_url :
-                    Traduction.text = message.content
-                
-                async with aiohttp.ClientSession() as session:
-
-                    try :
-                        webhook = Webhook.from_url(DESTINATION_WEBHOOK, session=session)
-                        await webhook.fetch()
-                    except :
-                        try :
-                            chan = await self.bot.fetch_channel(DESTINATION_CHANNEL)
-                        except errors.NotFound :
-                            await cursor.execute(f"DELETE FROM linkchannels WHERE guild_id = {message.guild.id} AND channel_id_1 = {DESTINATION_CHANNEL}")
-                            await self.bot.db.commit()
+                        try:
+                            Traduction = (
+                                await self.bot.trad.translate_to_detect(
+                                    text=message.content,
+                                    dest=DESTINATION_LANG
+                                )
+                            )
+                        except RateLimitError :
+                            raise
+                        except :
                             await cursor.close()
                             return
-                        webhook = await chan.create_webhook(name="Translator Bot")
-                        if DESTINATION_CHANNEL == result[0] :
-                            sql = f"UPDATE linkchannels SET webhook_1 = ? WHERE guild_id = ? AND channel_id_1 = ?"
-                            val = (webhook.url, message.guild.id, result[0])
-                        else :
-                            sql = f"UPDATE linkchannels SET webhook_2 = ? WHERE guild_id = ? AND channel_id_2 = ?"
-                            val = (webhook.url, message.guild.id, result[1])
-                        await cursor.execute(sql,val)
-                        await self.bot.db.commit()
 
-                    if len(Traduction.text) > 2000:
-                        parts = await self.split_message_into_parts(Traduction.text)
-                        if len(message.attachments) > 0:
-                            attachments = []
-                            for attachment in message.attachments :
-                                attachment = await attachment.to_file()
-                                attachments.append(attachment)
-                        for x in range(len(parts)):
-                            if (x == len(parts) - 1) and (len(message.attachments) > 0):
-                                await webhook.send(content=parts[x], username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None, files=attachments)
+                    if Traduction.src == 'auto':
+                        Traduction.src = langue_originale
+                    
+                    Traduction.text = await self.is_custom_emoji(
+                        message.content, Traduction.text
+                    )
+
+                    is_same_message_content = (
+                        await self.bot.loop.run_in_executor(
+                            None,
+                            self.compare_messages,
+                            message.content,
+                            Traduction.text
+                        )
+                    )
+                    is_same_message_only = (
+                        await self.bot.loop.run_in_executor(
+                            None,
+                            self.compare_messages,
+                            MessageOnly,
+                            Traduction.text
+                        )
+                    )
+                    if is_same_message_content or is_same_message_only:
+                        Traduction.text = message.content
+                    
+                    if (langinfo == "enabled" and 
+                        any([is_same_message_content, is_same_message_only])
+                    ):
+                        flag = self.bot.LANGUAGES[Traduction.src]
+                        Traduction.text = f"`{flag}` {Traduction.text}"
+                    
+                    if is_url :
+                        Traduction.text = message.content
+                    
+                    async with aiohttp.ClientSession() as session:
+                        try :
+                            webhook = Webhook.from_url(
+                                DESTINATION_WEBHOOK,
+                                session=session
+                            )
+                            await webhook.fetch()
+                        except :
+                            try :
+                                chan = await self.bot.fetch_channel(
+                                    DESTINATION_CHANNEL
+                                )
+                            except errors.NotFound :
+                                await cursor.execute(
+                                    f"DELETE FROM linkchannels WHERE "
+                                    f"guild_id = {message.guild.id} AND "
+                                    f"channel_id_1 = {DESTINATION_CHANNEL}"
+                                )
+                                await self.bot.db.commit()
+                                await cursor.close()
+                                return
+                            webhook = await chan.create_webhook(
+                                name="Translator Bot"
+                            )
+                            if DESTINATION_CHANNEL == _row[0] :
+                                sql = (
+                                    f"UPDATE linkchannels SET "
+                                    f"webhook_1 = ? WHERE "
+                                    f"guild_id = ? AND "
+                                    f"channel_id_1 = ?"
+                                )
+                                val = (webhook.url, message.guild.id, _row[0])
                             else :
-                                await webhook.send(content=parts[x], username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None)
-                    
-                    elif len(Traduction.text) == 0 and len(message.attachments) == 0:
-                        messagecontent = f"{message.jump_url}\nCould not translate this message. If you think this is an error, please contact UnBonWhisky on github or unbonwhisky on discord.\nOriginal message:\n{message.content}"
-                        if len(messagecontent) > 2000:
-                            await self.split_message_into_parts(messagecontent)
+                                sql = (
+                                    f"UPDATE linkchannels SET "
+                                    f"webhook_2 = ? WHERE "
+                                    f"guild_id = ? AND "
+                                    f"channel_id_2 = ?"
+                                )
+                                val = (webhook.url, message.guild.id, _row[1])
+                            await cursor.execute(sql,val)
+                            await self.bot.db.commit()
+
+                        if len(Traduction.text) > 2000:
+                            parts = await self.split_message_into_parts(
+                                Traduction.text
+                            )
+                            if len(message.attachments) > 0:
+                                attachments = []
+                                for attachment in message.attachments :
+                                    attachment = await attachment.to_file()
+                                    attachments.append(attachment)
                             for x in range(len(parts)):
-                                await webhook.send(content=parts[x], username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None)
-                        else :
-                            await webhook.send(content=messagecontent, username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None)
-                    
-                    elif len(Traduction.text) == 0 and len(message.attachments) > 0:
-                        attachments = []
-                        for attachment in message.attachments :
-                            attachment = await attachment.to_file()
-                            attachments.append(attachment)
-                        await webhook.send(username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None, files=attachments)
-                    
-                    else :
-                        if len(message.attachments) > 0:
+                                if all([
+                                    x == len(parts) - 1,
+                                    len(message.attachments) > 0
+                                ]):
+                                    await webhook.send(
+                                        content=parts[x],
+                                        username=message.author.display_name,
+                                        avatar_url=(
+                                            message.author.avatar.url if
+                                            message.author.avatar is not None
+                                            else None
+                                        ),
+                                        files=attachments
+                                    )
+                                else :
+                                    await webhook.send(
+                                        content=parts[x],
+                                        username=message.author.display_name,
+                                        avatar_url=(
+                                            message.author.avatar.url if
+                                            message.author.avatar is not None
+                                            else None
+                                        )
+                                    )
+                        
+                        elif all([
+                            len(Traduction.text) == 0,
+                            len(message.attachments) == 0
+                        ]):
+                            messagecontent = (
+                                f"{message.jump_url}\nCould not translate "
+                                f"this message. If you think this is an "
+                                f"error, please contact your mom.\n"
+                                f"Original message:\n{message.content}"
+                            )
+                            if len(messagecontent) > 2000:
+                                await self.split_message_into_parts(
+                                    messagecontent
+                                )
+                                for x in range(len(parts)):
+                                    await webhook.send(
+                                        content=parts[x],
+                                        username=message.author.display_name,
+                                        avatar_url=(
+                                            message.author.avatar.url if
+                                            message.author.avatar is not None
+                                            else None
+                                        )
+                                    )
+                            else :
+                                await webhook.send(
+                                    content=messagecontent,
+                                    username=message.author.display_name,
+                                    avatar_url=(
+                                        message.author.avatar.url if
+                                        message.author.avatar is not None
+                                        else None
+                                    )
+                                )
+                        
+                        elif all([
+                            len(Traduction.text) == 0,
+                            len(message.attachments) > 0
+                        ]):
                             attachments = []
                             for attachment in message.attachments :
                                 attachment = await attachment.to_file()
                                 attachments.append(attachment)
-                            await webhook.send(content=Traduction.text, username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None, files=attachments)
+                            await webhook.send(
+                                username=message.author.display_name,
+                                avatar_url=(
+                                    message.author.avatar.url if
+                                    message.author.avatar is not None
+                                    else None
+                                ),
+                                files=attachments
+                            )
+                        
                         else :
-                            await webhook.send(content=Traduction.text, username=message.author.display_name, avatar_url=message.author.avatar.url if message.author.avatar is not None else None)
-                await cursor.close()
-                return
+                            if len(message.attachments) > 0:
+                                attachments = []
+                                for attachment in message.attachments :
+                                    attachment = await attachment.to_file()
+                                    attachments.append(attachment)
+                                await webhook.send(
+                                    content=Traduction.text,
+                                    username=message.author.display_name,
+                                    avatar_url=(
+                                        message.author.avatar.url if
+                                        message.author.avatar is not None
+                                        else None
+                                    ),
+                                    files=attachments
+                                )
+                            else :
+                                await webhook.send(
+                                    content=Traduction.text,
+                                    username=message.author.display_name,
+                                    avatar_url=(
+                                        message.author.avatar.url if
+                                        message.author.avatar is not None
+                                        else None
+                                    )
+                                )
+                    await cursor.close()
+                    return
 
         if is_url:
             await cursor.close()
