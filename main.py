@@ -235,4 +235,4 @@ if __name__ == '__main__':
     try:
         bot.run(TOKEN)
     except KeyboardInterrupt:
-        await bot.close()
+        bot.close()
