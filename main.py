@@ -1,4 +1,4 @@
-import discord, aiosqlite, os, json, httpx, random
+import discord, aiosqlite, os, json, httpx, random, signal
 from discord import Intents
 from discord.ext import tasks
 from dotenv import load_dotenv
@@ -224,4 +224,7 @@ async def on_guild_remove(guild):
     )
 
 if __name__ == '__main__':
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN)
+    except (KeyboardInterrupt, signal.SIGINT):
+        bot.close()
