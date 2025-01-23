@@ -131,15 +131,16 @@ class LinkChannels(Cog):
                 await self.bot.db.commit()
 
                 EmbedMessage = Embed(
-                    description = f"Linked translation between <#{channel_1.id}> : **{language_1}** and <#{channel_2.id}> : **{language_2}** has been setted up.",
+                    description = f"Linked translation between <#{channel_1.id}> : **{language_1}** and <#{channel_2.id}> : **{language_2}** has been set up.",
                     color=0x5865F2
                 )
 
             else :
-                sql = ("DELETE FROM linkchannels WHERE channel_id_1 = ? OR channel_id_2 = ? OR channel_id_1 = ? OR channel_id_2 = ?")
-                val = (channel_1.id, channel_1.id, channel_2.id, channel_2.id)
-                await self.bot.cursor.execute(sql, val)
-                await self.bot.db.commit()
+                # The following lines were commented out to remove the limit on linked channels.
+                # sql = ("DELETE FROM linkchannels WHERE channel_id_1 = ? OR channel_id_2 = ? OR channel_id_1 = ? OR channel_id_2 = ?")
+                # val = (channel_1.id, channel_1.id, channel_2.id, channel_2.id)
+                # await self.bot.cursor.execute(sql, val)
+                # await self.bot.db.commit()
 
                 sql = ("INSERT INTO linkchannels(guild_id, channel_id_1, channel_id_2, language_1, language_2, webhook_1, webhook_2) VALUES(?,?,?,?,?,?,?)")
                 val = (ctx.guild.id, channel_1.id, channel_2.id, language_1, language_2, webhook_1.url, webhook_2.url)
@@ -147,7 +148,7 @@ class LinkChannels(Cog):
                 await self.bot.db.commit()
 
                 EmbedMessage = Embed(
-                    description = f"Linked translation between <#{channel_1.id}> : **{language_1}** and <#{channel_2.id}> : **{language_2}** has been setted up.",
+                    description = f"Linked translation between <#{channel_1.id}> : **{language_1}** and <#{channel_2.id}> : **{language_2}** has been set up.",
                     color=0x5865F2
                 )
 
@@ -187,7 +188,7 @@ class LinkChannels(Cog):
         if LinkChannelsList == []:
 
             EmbedMessage = Embed(
-                description = f"No link channels translation has been setted up for <#{channel.id}>\nYou can set it up using `/linkchannels add` command or list existing link channels channels using `/linkchannels list` command.",
+                description = f"No link channels translation has been set up for <#{channel.id}>\nYou can set it up using `/linkchannels add` command or list existing link channels channels using `/linkchannels list` command.",
                 color=0xFF0000
             )
 
@@ -212,7 +213,7 @@ class LinkChannels(Cog):
     
     @linkchannels.command(
         name="list",
-        description="List all the linked channels in the server."
+        description="List all the linked channels on the server."
     )
     async def linkchannels_list(self, ctx : ApplicationContext):
         
@@ -224,7 +225,7 @@ class LinkChannels(Cog):
         if LinkChannelsList == []:
 
             EmbedMessage = Embed(
-                description = "No link channels has been setted up in this server",
+                description = "No link channels has been set up on this server",
                 color=0xFF0000
             )
 
