@@ -51,6 +51,9 @@ class ShardedBot(discord.AutoShardedBot):
 
     async def setup_translator(self):
         proxy = os.getenv('BOT_PROXY')
+        # Ensure proxy is a NoneType and not an empty string or other object
+        if not proxy:
+            proxy = None
         
         self.trad = Translator(proxy=proxy)
         print(f"=== Proxy Setup updated ! ===")
