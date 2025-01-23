@@ -223,8 +223,16 @@ async def on_guild_remove(guild):
         headers=headers
     )
 
+
+async def signal_handler(_signal, _frame):
+    """What to do if we get a sigterm signal when the bot is running.
+    """
+    await bot.close()
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, signal_handler)
     try:
         bot.run(TOKEN)
-    except (KeyboardInterrupt, signal.SIGINT):
-        bot.close()
+    except KeyboardInterrupt:
+        await bot.close()
