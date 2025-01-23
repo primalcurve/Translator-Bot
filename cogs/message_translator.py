@@ -154,7 +154,7 @@ class MessageTranslator(Cog):
             result = [list(row) for row in result if list(row)[0] is not None]
             if len(result) == 0:
                 result = None
-        
+
         await cursor.execute(
             f"SELECT info FROM langinfo WHERE guild_id = {message.guild.id}"
         )
@@ -210,8 +210,8 @@ class MessageTranslator(Cog):
                             f"AND channel_id_1 = {_row[0]}"
                         )
                         await self.bot.db.commit()
-                        await cursor.close()
-                        return
+                        # await cursor.close()
+                        continue
                     try:
                         webhook = await chan.create_webhook(
                             name="Translator Bot"
@@ -225,8 +225,8 @@ class MessageTranslator(Cog):
                             f"and try again.\nIf you are not an admin, "
                             f"please ask an admin to give me the permission."
                         )
-                        await cursor.close()
-                        return
+                        # await cursor.close()
+                        continue
                     sql = (
                         f"UPDATE linkchannels "
                         f"SET webhook_1 = ? "
@@ -249,8 +249,8 @@ class MessageTranslator(Cog):
                             f"AND channel_id_1 = {_row[1]}"
                         )
                         await self.bot.db.commit()
-                        await cursor.close()
-                        return
+                        # await cursor.close()
+                        continue
                     try:
                         webhook = await chan.create_webhook(
                             name="Translator Bot"
@@ -264,8 +264,8 @@ class MessageTranslator(Cog):
                             f"and try again.\nIf you are not an admin, "
                             f"please ask an admin to give me the permission."
                         )
-                        await cursor.close()
-                        return
+                        # await cursor.close()
+                        continue
                     sql = (
                         f"UPDATE linkchannels "
                         f"SET webhook_2 = ? "
@@ -309,8 +309,8 @@ class MessageTranslator(Cog):
                         except RateLimitError :
                             raise
                         except :
-                            await cursor.close()
-                            return
+                            # await cursor.close()
+                            continue
 
                     if Traduction.src == 'auto':
                         Traduction.src = langue_originale
@@ -366,8 +366,8 @@ class MessageTranslator(Cog):
                                     f"channel_id_1 = {DESTINATION_CHANNEL}"
                                 )
                                 await self.bot.db.commit()
-                                await cursor.close()
-                                return
+                                # await cursor.close()
+                                continue
                             webhook = await chan.create_webhook(
                                 name="Translator Bot"
                             )
@@ -504,8 +504,8 @@ class MessageTranslator(Cog):
                                         else None
                                     )
                                 )
-                    await cursor.close()
-                    return
+            await cursor.close()
+            return
 
         if is_url:
             await cursor.close()
